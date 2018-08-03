@@ -61,7 +61,7 @@ public class Services {
 					persist = EAIResourceRepository.isDevelopment() || Boolean.parseBoolean(System.getProperty("acme.persist", "false"));
 				}
 				if (staging == null) {
-					staging = Boolean.parseBoolean(System.getProperty("acme.staging", "false"));
+					staging = EAIResourceRepository.isDevelopment() || Boolean.parseBoolean(System.getProperty("acme.staging", "false"));
 				}
 				// we default to 1 minute
 				verifyCertificate(acme, staging != null && staging, timeout == null ? 1000l * 60 * 60 : timeout, persist, force != null && force);
@@ -73,7 +73,7 @@ public class Services {
 		// if there is no certificate, check the shared map to see if someone in the cluster already requested one
 		try {
 			// we are only interested in hosts that have an alias linked to a server that has a keystore
-			if (artifact.getRepository().getServiceRunner() instanceof ClusteredServer && artifact.getConfig().getVirtualHost() != null && artifact.getConfig().getVirtualHost().getConfig().getKeyAlias() != null && artifact.getConfig().getVirtualHost().getConfig().getServer().getConfig().getKeystore() != null) {
+			if (artifact.getConfig().isEnabled() && artifact.getRepository().getServiceRunner() instanceof ClusteredServer && artifact.getConfig().getVirtualHost() != null && artifact.getConfig().getVirtualHost().getConfig().getKeyAlias() != null && artifact.getConfig().getVirtualHost().getConfig().getServer().getConfig().getKeystore() != null) {
 				logger.info("[{}] Verifying ACME certificate", artifact.getId());
 				
 				ClusterInstance cluster = ((ClusteredServer) artifact.getRepository().getServiceRunner()).getCluster();

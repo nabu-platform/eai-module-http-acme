@@ -1,11 +1,13 @@
 package be.nabu.eai.module.http.acme;
 
+import javax.xml.bind.annotation.XmlRootElement;
 import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 
 import be.nabu.eai.api.EnvironmentSpecific;
 import be.nabu.eai.module.http.virtual.VirtualHostArtifact;
 import be.nabu.eai.repository.jaxb.ArtifactXMLAdapter;
 
+@XmlRootElement(name = "acme")
 public class AcmeConfiguration {
 	private boolean enabled;
 	private VirtualHostArtifact virtualHost;
