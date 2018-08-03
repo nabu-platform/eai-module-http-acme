@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>nabu</groupId>
 	<artifactId>eai-module-http-acme</artifactId>
-	<version>1.0-SNAPSHOT</version>
+	<version>${nabu-eai-module-http-acme-version}</version>
 	<name>eai-module-http-acme</name>
 	<url>http://nabu.be</url>
 
