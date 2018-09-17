@@ -27,6 +27,6 @@ public class AcmeArtifactGUIManager extends BaseJAXBGUIManager<AcmeConfiguration
 
 	@Override
 	public String getCategory() {
-		return "Protocols";
+		return "Security";
 	}
 }

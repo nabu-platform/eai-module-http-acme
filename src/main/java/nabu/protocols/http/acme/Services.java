@@ -17,8 +17,10 @@ import java.util.List;
 import java.util.Map;
 
 import javax.jws.WebParam;
+import javax.jws.WebResult;
 import javax.jws.WebService;
 import javax.security.auth.x500.X500Principal;
+import javax.xml.bind.annotation.XmlRootElement;
 
 import org.shredzone.acme4j.Account;
 import org.shredzone.acme4j.AccountBuilder;
@@ -50,10 +52,24 @@ import be.nabu.utils.security.StoreType;
 @WebService
 public class Services {
 	
+	
+	public static class VerificationResult {
+		private X509Certificate certificate;
+
+		public X509Certificate getCertificate() {
+			return certificate;
+		}
+
+		public void setCertificate(X509Certificate certificate) {
+			this.certificate = certificate;
+		}
+	}
+	
 	private Logger logger = LoggerFactory.getLogger(getClass());
 	
 	// can verify for a single acme, for a group of acme or all acme
 	// we can do this with a startup service that scans every 12 hours or so
+	@WebResult(name = "verification")
 	public void verifyCertificate(@WebParam(name = "acmeId") String acmeId, @WebParam(name = "staging") Boolean staging, @WebParam(name = "timeout") Long timeout, @WebParam(name = "persist") Boolean persist, @WebParam(name = "force") Boolean force) {
 		for (AcmeArtifact acme : EAIResourceRepository.getInstance().getArtifacts(AcmeArtifact.class)) {
 			if (acmeId == null || acme.getId().equals(acmeId) || acme.getId().startsWith(acmeId + ".")) {
@@ -69,8 +85,9 @@ public class Services {
 		}
 	}
 	
-	private void verifyCertificate(AcmeArtifact artifact, boolean staging, long timeout, boolean persist, boolean force) {
+	private VerificationResult verifyCertificate(AcmeArtifact artifact, boolean staging, long timeout, boolean persist, boolean force) {
 		// if there is no certificate, check the shared map to see if someone in the cluster already requested one
+		X509Certificate validCertificate = null;
 		try {
 			// we are only interested in hosts that have an alias linked to a server that has a keystore
 			if (artifact.getConfig().isEnabled() && artifact.getRepository().getServiceRunner() instanceof ClusteredServer && artifact.getConfig().getVirtualHost() != null && artifact.getConfig().getVirtualHost().getConfig().getKeyAlias() != null && artifact.getConfig().getVirtualHost().getConfig().getServer().getConfig().getKeystore() != null) {
@@ -79,7 +96,7 @@ public class Services {
 				ClusterInstance cluster = ((ClusteredServer) artifact.getRepository().getServiceRunner()).getCluster();
 				KeyStoreArtifact keystore = artifact.getConfig().getVirtualHost().getConfig().getServer().getConfig().getKeystore();
 				String keyAlias = artifact.getConfig().getVirtualHost().getConfig().getKeyAlias();
-				String acmeAlias = "acme2-" + keyAlias;
+				String acmeAlias = "acme2-" + artifact.getId();
 				VirtualHostArtifact virtualHost = artifact.getConfig().getVirtualHost();
 				
 				// if there is no entry yet, we need to refresh
@@ -93,6 +110,8 @@ public class Services {
 					// if the certificate is valid for at least 3 more days, we don't need to refresh
 					if (x509Certificate.getNotAfter().after(new Date(new Date().getTime() + 1000l*60*60*24*3))) {
 						refresh = false;
+						logger.info("[{}] Existing certificate for " + virtualHost.getConfig().getHost() + " valid until: " + x509Certificate.getNotAfter(), artifact.getId());
+						validCertificate = x509Certificate;
 					}
 					else {
 						logger.info("[{}] Certificate for " + virtualHost.getConfig().getHost() + " expires at: " + x509Certificate.getNotAfter(), artifact.getId());
@@ -124,7 +143,7 @@ public class Services {
 						// if we want to force a renegotiation, don't try to load from the map
 						if (object instanceof byte[] && !force) {
 							KeyStoreHandler toMerge = KeyStoreHandler.load(new ByteArrayInputStream((byte[]) object), artifact.getId(), StoreType.PKCS12);
-							X509Certificate[] chain = keystore.getKeyStore().getChain(acmeAlias);
+							X509Certificate[] chain = toMerge.getPrivateKeys().get(acmeAlias);
 							if (chain != null && chain.length > 0) {
 								serverKeyPair = new KeyPair(
 									chain[0].getPublicKey(),
@@ -133,9 +152,11 @@ public class Services {
 								X509Certificate x509Certificate = chain[0];
 								// if it is valid for more than 6 days, use it
 								if (x509Certificate.getNotAfter().after(new Date(new Date().getTime() + 1000l*60*60*24*6))) {
-									logger.info("[{}] Found certificate valid until: " + x509Certificate.getNotAfter(), artifact.getId());
-									keystore.getKeyStore().set(acmeAlias, toMerge.getPrivateKey(acmeAlias, null), toMerge.getPrivateKeys().get(acmeAlias), null);
+									logger.info("[{}] Found certificate in clustered map that is valid until: " + x509Certificate.getNotAfter(), artifact.getId());
 									refresh = false;
+									validCertificate = x509Certificate;
+									// this makes sure the "new" keystore gets loaded, activated and saved
+									artifact.releaseAllSubscriptions((byte []) object);
 								}
 								else {
 									logger.info("[{}] Found certificate but it expires at: " + x509Certificate.getNotAfter(), artifact.getId());
@@ -143,10 +164,10 @@ public class Services {
 							}
 						}
 						else if (object instanceof byte[] && force) {
-							logger.info("[{}] Entry found in the map but forcibly refreshing", artifact.getId());
+							logger.info("[{}] Entry found in the clustered map but forcibly refreshing", artifact.getId());
 						}
 						else {
-							logger.info("[{}] No entry in the map", artifact.getId());	
+							logger.info("[{}] No entry in the clustered map", artifact.getId());	
 						}
 
 						// need to actually call acme
@@ -170,13 +191,10 @@ public class Services {
 								.useKeyPair(user)
 								.create(session);
 							
-							if (serverKeyPair == null) {
-								logger.info("[{}] Generating new keypair (RSA 4096)", artifact.getId());
-								serverKeyPair = SecurityUtils.generateKeyPair(KeyPairType.RSA, 4096);
-							}
-							else {
-								logger.info("[{}] Reusing existing keypair", artifact.getId());
-							}
+							// if we reuse the existing keypair we get:
+							// Error finalizing order :: certificate public key must be different than account key
+							logger.info("[{}] Generating new keypair (RSA 4096)", artifact.getId());
+							serverKeyPair = SecurityUtils.generateKeyPair(KeyPairType.RSA, 4096);
 							
 							List<String> domains = new ArrayList<String>();
 							// add the main domain
@@ -282,6 +300,9 @@ public class Services {
 								
 								Certificate certificate = order.getCertificate();
 								
+								// we are interested in the current certificate
+								validCertificate = certificate.getCertificateChain().get(0);
+								
 								// create a new key store to persist it
 								KeyStoreHandler temporary = KeyStoreHandler.create(artifact.getId(), StoreType.PKCS12);
 								temporary.set(acmeAlias, serverKeyPair.getPrivate(), certificate.getCertificateChain().toArray(new X509Certificate[0]), null);
@@ -290,6 +311,9 @@ public class Services {
 								// set the key store in the clustered map so nodes can retrieve it on startup (or success handling)
 								pkcs12 = output.toByteArray();
 								map.put("pkcs12", pkcs12);
+								
+								// put it in the main keystore as well
+								keystore.getKeyStore().set(acmeAlias, serverKeyPair.getPrivate(), certificate.getCertificateChain().toArray(new X509Certificate[0]), null);
 								
 								// we will emit a topic message in the finally that contains the pkcs12 which will be broadcast to all nodes and it will update the keystore
 								
@@ -329,5 +353,8 @@ public class Services {
 		catch (Exception e) {
 			throw new RuntimeException(e);
 		}
+		VerificationResult result = new VerificationResult();
+		result.setCertificate(validCertificate);
+		return result;
 	}
 }

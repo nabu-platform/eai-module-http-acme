@@ -29,6 +29,7 @@ import be.nabu.libs.http.api.HTTPResponse;
 import be.nabu.libs.http.core.DefaultHTTPResponse;
 import be.nabu.libs.http.core.HTTPUtils;
 import be.nabu.libs.resources.api.ResourceContainer;
+import be.nabu.libs.resources.api.WritableResource;
 import be.nabu.libs.resources.memory.MemoryDirectory;
 import be.nabu.utils.io.IOUtils;
 import be.nabu.utils.mime.impl.MimeHeader;
@@ -141,14 +142,23 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 							logger.info("[{}] Received new keystore", getId());
 							
 							KeyStoreArtifact keystore = getConfig().getVirtualHost().getConfig().getServer().getConfig().getKeystore();
-							String keyAlias = getConfig().getVirtualHost().getConfig().getKeyAlias();
-							String acmeAlias = "acme2-" + keyAlias;
+							//String keyAlias = getConfig().getVirtualHost().getConfig().getKeyAlias();
+							String acmeAlias = "acme2-" + getId();
 							try {
 								KeyStoreHandler toMerge = KeyStoreHandler.load(new ByteArrayInputStream(message.getKeystore()), getId(), StoreType.PKCS12);
 								
 								// set it in the server keystore so it can be used
 								keystore.getKeyStore().set(acmeAlias, toMerge.getPrivateKey(acmeAlias, null), toMerge.getPrivateKeys().get(acmeAlias), null);
 								
+								// save the newly obtained certificate if the files are writable
+								// this is especially interesting for non-clustered servers because without clustered map storage they would have to re-request it every boot
+								// given the weekly limits, this could be problematic when the project is still being deployed often
+								if (keystore.getDirectory().getChild("keystore.xml") instanceof WritableResource) {
+									logger.info("[{}] Persisting keystore", getId());
+									keystore.save(keystore.getDirectory());
+								}
+								
+								logger.info("[{}] Updating security context", getId());
 								// update the security context for the server so it picks up the new key
 								getConfig().getVirtualHost().getConfig().getServer().updateSecurityContext();
 							}
@@ -164,17 +174,19 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 					}
 					else {
 						logger.info("[{}] Setting up HTTP challenge", getId());
-						VirtualHostArtifact unsecure = null;
-						for (VirtualHostArtifact host : getRepository().getArtifacts(VirtualHostArtifact.class)) {
-							// we are looking for a virtual host with the same host name
-							if (!host.equals(this) && getConfig().getVirtualHost().getConfig().getHost().equals(host.getConfig().getHost())) {
-								// it must have a server and must not be configured for security 
-								if (host.getConfig().getServer() != null && host.getConfig().getKeyAlias() == null) {
-									Integer port = host.getConfig().getServer().getConfig().getPort();
-									// and the port _must_ be 80 as it is a standardized protocol on this port
-									if (port == null || port == 80) {
-										unsecure = host;
-										break;
+						VirtualHostArtifact unsecure = customHost;
+						if (unsecure == null) {
+							for (VirtualHostArtifact host : getRepository().getArtifacts(VirtualHostArtifact.class)) {
+								// we are looking for a virtual host with the same host name
+								if (!host.equals(this) && getConfig().getVirtualHost().getConfig().getHost().equals(host.getConfig().getHost())) {
+									// it must have a server and must not be configured for security 
+									if (host.getConfig().getServer() != null && host.getConfig().getKeyAlias() == null) {
+										Integer port = host.getConfig().getServer().getConfig().getPort();
+										// and the port _must_ be 80 as it is a standardized protocol on this port
+										if (port == null || port == 80) {
+											unsecure = host;
+											break;
+										}
 									}
 								}
 							}
@@ -182,11 +194,14 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 						// find a server on port 80 and add a dynamic host
 						if (unsecure == null) {
 							logger.info("[{}] Could not find unsecure host equivalent, checking for available servers", getId());
-							HTTPServerArtifact server = null;
-							for (HTTPServerArtifact possible : getRepository().getArtifacts(HTTPServerArtifact.class)) {
-								if (possible.getConfig().getKeystore() == null && (possible.getConfig().getPort() == null || possible.getConfig().getPort() == 80)) {
-									server = possible;
-									break;
+							HTTPServerArtifact server = customServer;
+							if (server == null) {
+								for (HTTPServerArtifact possible : getRepository().getArtifacts(HTTPServerArtifact.class)) {
+									// can have disabled servers from other projects
+									if (possible.getConfig().getKeystore() == null && (possible.getConfig().getPort() == null || possible.getConfig().getPort() == 80) && possible.getConfig().isEnabled()) {
+										server = possible;
+										break;
+									}
 								}
 							}
 							// if we have no server, start one up on 80
@@ -203,6 +218,9 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 									logger.error("[" + getId() + "] Could not start custom http server", e);
 								}
 							}
+							else {
+								logger.info("[{}] Found existing unsecure http server: " + server.getId(), getId());
+							}
 							if (server != null) {
 								logger.info("[{}] Starting custom unsecure virtual host", getId());
 								customHost = new VirtualHostArtifact(getId() + ".host", new MemoryDirectory(), getRepository());
@@ -218,6 +236,9 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 								}
 							}
 						}
+						else {
+							logger.info("[{}] Found existing unsecure host: " + unsecure.getId(), getId());
+						}
 						if (unsecure == null) {
 							logger.error("[{}] Could not find unsecure host for: " + getConfig().getVirtualHost().getConfig().getHost(), getId());
 						}
@@ -230,6 +251,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 									try {
 										URI uri = HTTPUtils.getURI(request, false);
 										if (uri.getPath().equals(path)) {
+											logger.info("[{}] Incoming call: " + uri, getId());
 											byte [] content = message.getAuthorization().getBytes(Charset.forName("UTF-8"));
 											return new DefaultHTTPResponse(200, HTTPCodes.getMessage(200), new PlainMimeContentPart(null, 
 												IOUtils.wrap(content, true), 
