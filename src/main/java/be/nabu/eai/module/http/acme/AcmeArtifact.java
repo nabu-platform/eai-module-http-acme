@@ -212,6 +212,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 								customServer.getConfig().setPort(80);
 								try {
 									customServer.start();
+									customServer.finish();
 									server = customServer;
 								}
 								catch (IOException e) {

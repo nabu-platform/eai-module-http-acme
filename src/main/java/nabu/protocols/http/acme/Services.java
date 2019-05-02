@@ -6,6 +6,7 @@ import java.io.FileOutputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.URI;
 import java.security.KeyPair;
 import java.security.PrivateKey;
@@ -199,12 +200,33 @@ public class Services {
 							List<String> domains = new ArrayList<String>();
 							// add the main domain
 							domains.add(virtualHost.getConfig().getHost());
-							// add any alias that represents a subdomain (e.g. www)
+							// add all aliases
 							if (virtualHost.getConfig().getAliases() != null) {
-								for (String alias : virtualHost.getConfig().getAliases()) {
-									if (alias.endsWith("." + virtualHost.getConfig().getHost())) {
-										domains.add(alias);
+								domains.addAll(virtualHost.getConfig().getAliases());
+							}
+							// check for each domain that it is not local
+							Iterator<String> it = domains.iterator();
+							while (it.hasNext()) {
+								String domain = it.next();
+								try {
+									InetAddress byName = InetAddress.getByName(domain);
+									// they can be different in case of CNAME's
+									// the problem is that we often use CNAME to reference non-prd amazon servers
+									// however, amazon will resolve a DNS request for a server from within the amazon infrastructure to a local ip and if you query it from outside of amazon to an external ip
+									// this is a rather nasty hack to make sure that if we are using CNAME's, we assume it is approachable from the outside...
+									// so when using ACME resolving on CNAME's that point to actually unavailable internal ips, this will fail...
+									// quite possibly the signing will still go through correctly just not include the host (which would be acceptable behavior), otherwise we might have to revisit this...
+									if (!byName.getHostName().equals(byName.getCanonicalHostName())) {
+										continue;
 									}
+									if (byName.isAnyLocalAddress() || byName.isLinkLocalAddress() || byName.isLoopbackAddress() || byName.isSiteLocalAddress()) {
+										logger.warn("Skipping local domain: " + domain);
+										it.remove();
+									}
+								}
+								catch (Exception e) {
+									logger.warn("Skipping unresolvable domain: " + domain, e);
+									it.remove();
 								}
 							}
 							
