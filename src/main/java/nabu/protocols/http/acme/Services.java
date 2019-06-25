@@ -21,7 +21,6 @@ import javax.jws.WebParam;
 import javax.jws.WebResult;
 import javax.jws.WebService;
 import javax.security.auth.x500.X500Principal;
-import javax.xml.bind.annotation.XmlRootElement;
 
 import org.shredzone.acme4j.Account;
 import org.shredzone.acme4j.AccountBuilder;
@@ -75,10 +74,10 @@ public class Services {
 		for (AcmeArtifact acme : EAIResourceRepository.getInstance().getArtifacts(AcmeArtifact.class)) {
 			if (acmeId == null || acme.getId().equals(acmeId) || acme.getId().startsWith(acmeId + ".")) {
 				if (persist == null) {
-					persist = EAIResourceRepository.isDevelopment() || Boolean.parseBoolean(System.getProperty("acme.persist", "false"));
+					persist = Boolean.parseBoolean(System.getProperty("acme.persist", "false"));
 				}
 				if (staging == null) {
-					staging = EAIResourceRepository.isDevelopment() || Boolean.parseBoolean(System.getProperty("acme.staging", "false"));
+					staging = Boolean.parseBoolean(System.getProperty("acme.staging", "false"));
 				}
 				// we default to 1 minute
 				verifyCertificate(acme, staging != null && staging, timeout == null ? 1000l * 60 * 60 : timeout, persist, force != null && force);

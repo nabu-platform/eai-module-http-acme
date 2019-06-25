@@ -2,6 +2,7 @@ package be.nabu.eai.module.http.acme;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.URI;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -45,7 +46,8 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 	private VirtualHostArtifact customHost;
 	private HTTPServerArtifact customServer;
 	
-	public static class HTTPChallenge {
+	public static class HTTPChallenge implements Serializable {
+		private static final long serialVersionUID = 1L;
 		private boolean completed;
 		private String authorization, token;
 		private byte [] keystore;
