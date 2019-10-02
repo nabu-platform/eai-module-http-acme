@@ -65,7 +65,7 @@ public class Services {
 		}
 	}
 	
-	private Logger logger = LoggerFactory.getLogger(getClass());
+	private static Logger logger = LoggerFactory.getLogger(Services.class);
 	
 	// can verify for a single acme, for a group of acme or all acme
 	// we can do this with a startup service that scans every 12 hours or so
@@ -85,7 +85,7 @@ public class Services {
 		}
 	}
 	
-	private VerificationResult verifyCertificate(AcmeArtifact artifact, boolean staging, long timeout, boolean persist, boolean force) {
+	public static VerificationResult verifyCertificate(AcmeArtifact artifact, boolean staging, long timeout, boolean persist, boolean force) {
 		// if there is no certificate, check the shared map to see if someone in the cluster already requested one
 		X509Certificate validCertificate = null;
 		try {
@@ -239,10 +239,10 @@ public class Services {
 								for (Authorization authorization : order.getAuthorizations()) {
 									Http01Challenge httpChallenge = authorization.findChallenge(Http01Challenge.TYPE);
 									if (httpChallenge == null) {
-										logger.error("[{}] No http challenge found for authorization of: " + authorization.getDomain(), artifact.getId());
-										throw new IllegalStateException("Could not find http challenge for domain: " + authorization.getDomain());
+										logger.error("[{}] No http challenge found for authorization of: " + authorization.getIdentifier().getDomain(), artifact.getId());
+										throw new IllegalStateException("Could not find http challenge for domain: " + authorization.getIdentifier().getDomain());
 									}
-									logger.info("[{}] Adding subscription for: " + authorization.getDomain(), artifact.getId());
+									logger.info("[{}] Adding subscription for: " + authorization.getIdentifier().getDomain(), artifact.getId());
 									artifact.subscribe(httpChallenge.getToken(), httpChallenge.getAuthorization());
 									challenges.add(httpChallenge);
 								}
@@ -359,8 +359,8 @@ public class Services {
 						lock.unlock();
 					}
 				}
-				// make sure it uses the ACME alias
-				virtualHost.getConfig().setKeyAlias(acmeAlias);
+				// make sure it uses the ACME alias, note that aliases in the keystore are caseinsentive and lowercase!
+				virtualHost.getConfig().setKeyAlias(acmeAlias.toLowerCase());
 			}
 			// if no one did (or it is nearly expired), get a lock
 			// if you can't get a lock, wait for it, that means someone else is getting a new one

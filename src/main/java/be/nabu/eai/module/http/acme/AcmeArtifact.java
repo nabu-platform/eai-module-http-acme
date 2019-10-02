@@ -18,8 +18,10 @@ import be.nabu.eai.repository.api.ClusteredServer;
 import be.nabu.eai.repository.api.Repository;
 import be.nabu.eai.repository.artifacts.jaxb.JAXBArtifact;
 import be.nabu.libs.artifacts.api.StartableArtifact;
+import be.nabu.libs.artifacts.api.StoppableArtifact;
 import be.nabu.libs.cluster.api.ClusterInstance;
 import be.nabu.libs.cluster.api.ClusterMessageListener;
+import be.nabu.libs.cluster.api.ClusterSubscription;
 import be.nabu.libs.cluster.api.ClusterTopic;
 import be.nabu.libs.events.api.EventHandler;
 import be.nabu.libs.events.api.EventSubscription;
@@ -38,13 +40,14 @@ import be.nabu.utils.mime.impl.PlainMimeContentPart;
 import be.nabu.utils.security.KeyStoreHandler;
 import be.nabu.utils.security.StoreType;
 
-public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements StartableArtifact {
+public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements StartableArtifact, StoppableArtifact {
 
 	private Logger logger = LoggerFactory.getLogger(getClass());
 	private boolean started;
 	private List<EventSubscription<HTTPRequest, HTTPResponse>> challengeHandlers = new ArrayList<EventSubscription<HTTPRequest, HTTPResponse>>();
 	private VirtualHostArtifact customHost;
 	private HTTPServerArtifact customServer;
+	private ClusterSubscription subscription;
 	
 	public static class HTTPChallenge implements Serializable {
 		private static final long serialVersionUID = 1L;
@@ -114,7 +117,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 			ClusterInstance cluster = ((ClusteredServer) getRepository().getServiceRunner()).getCluster();
 			ClusterTopic<HTTPChallenge> topic = cluster.topic(getId() + ":http-challenge");
 			logger.info("Subscribing to cluster topic: " + getId() + ":http-challenge");
-			topic.subscribe(new ClusterMessageListener<AcmeArtifact.HTTPChallenge>() {
+			subscription = topic.subscribe(new ClusterMessageListener<AcmeArtifact.HTTPChallenge>() {
 				@Override
 				public void onMessage(final HTTPChallenge message) {
 					// if it is completed, unregister all handlers
@@ -286,5 +289,14 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 	@Override
 	public boolean isStarted() {
 		return started;
+	}
+
+	@Override
+	public void stop() throws IOException {
+		started = false;
+		if (subscription != null) {
+			subscription.unsubscribe();
+			subscription = null;
+		}
 	}
 }
