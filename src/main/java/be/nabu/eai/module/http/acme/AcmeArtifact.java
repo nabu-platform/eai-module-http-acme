@@ -182,8 +182,8 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 						VirtualHostArtifact unsecure = customHost;
 						if (unsecure == null) {
 							for (VirtualHostArtifact host : getRepository().getArtifacts(VirtualHostArtifact.class)) {
-								// we are looking for a virtual host with the same host name
-								if (!host.equals(this) && getConfig().getVirtualHost().getConfig().getHost().equals(host.getConfig().getHost())) {
+								// we are looking for a virtual host with the same host name but not the one the acme artifact is mounted on (that is the secure one)
+								if (!host.equals(getConfig().getVirtualHost()) && getConfig().getVirtualHost().getConfig().getHost().equals(host.getConfig().getHost())) {
 									// it must have a server and must not be configured for security 
 									if (host.getConfig().getServer() != null && host.getConfig().getKeyAlias() == null) {
 										Integer port = host.getConfig().getServer().getConfig().getPort();
