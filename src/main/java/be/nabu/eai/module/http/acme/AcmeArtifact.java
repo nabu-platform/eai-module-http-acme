@@ -146,7 +146,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 						if (message.getKeystore() != null) {
 							logger.info("[{}] Received new keystore", getId());
 							
-							KeyStoreArtifact keystore = getConfig().getVirtualHost().getConfig().getServer().getConfig().getKeystore();
+							KeyStoreArtifact keystore = getConfig().getVirtualHost().getServer().getConfig().getKeystore();
 							//String keyAlias = getConfig().getVirtualHost().getConfig().getKeyAlias();
 							String acmeAlias = "acme2-" + getId();
 							try {
@@ -165,7 +165,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 								
 								logger.info("[{}] Updating security context", getId());
 								// update the security context for the server so it picks up the new key
-								getConfig().getVirtualHost().getConfig().getServer().updateSecurityContext();
+								getConfig().getVirtualHost().getServer().updateSecurityContext();
 							}
 							catch (Exception e) {
 								logger.error("[" + getId() + "] Could not set updated keystore", e);
@@ -185,8 +185,8 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 								// we are looking for a virtual host with the same host name but not the one the acme artifact is mounted on (that is the secure one)
 								if (!host.equals(getConfig().getVirtualHost()) && getConfig().getVirtualHost().getConfig().getHost().equals(host.getConfig().getHost())) {
 									// it must have a server and must not be configured for security 
-									if (host.getConfig().getServer() != null && host.getConfig().getKeyAlias() == null) {
-										Integer port = host.getConfig().getServer().getConfig().getPort();
+									if (host.getServer() != null && host.getConfig().getKeyAlias() == null) {
+										Integer port = host.getServer().getConfig().getPort();
 										// and the port _must_ be 80 as it is a standardized protocol on this port
 										if (port == null || port == 80) {
 											unsecure = host;

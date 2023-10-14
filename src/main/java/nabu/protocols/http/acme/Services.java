@@ -90,11 +90,11 @@ public class Services {
 		X509Certificate validCertificate = null;
 		try {
 			// we are only interested in hosts that have an alias linked to a server that has a keystore
-			if (artifact.getConfig().isEnabled() && artifact.getRepository().getServiceRunner() instanceof ClusteredServer && artifact.getConfig().getVirtualHost() != null && artifact.getConfig().getVirtualHost().getConfig().getKeyAlias() != null && artifact.getConfig().getVirtualHost().getConfig().getServer().getConfig().getKeystore() != null) {
+			if (artifact.getConfig().isEnabled() && artifact.getRepository().getServiceRunner() instanceof ClusteredServer && artifact.getConfig().getVirtualHost() != null && artifact.getConfig().getVirtualHost().getConfig().getKeyAlias() != null && artifact.getConfig().getVirtualHost().getServer().getConfig().getKeystore() != null) {
 				logger.info("[{}] Verifying ACME certificate", artifact.getId());
 				
 				ClusterInstance cluster = ((ClusteredServer) artifact.getRepository().getServiceRunner()).getCluster();
-				KeyStoreArtifact keystore = artifact.getConfig().getVirtualHost().getConfig().getServer().getConfig().getKeystore();
+				KeyStoreArtifact keystore = artifact.getConfig().getVirtualHost().getServer().getConfig().getKeystore();
 				String keyAlias = artifact.getConfig().getVirtualHost().getConfig().getKeyAlias();
 				String acmeAlias = "acme2-" + artifact.getId();
 				VirtualHostArtifact virtualHost = artifact.getConfig().getVirtualHost();
