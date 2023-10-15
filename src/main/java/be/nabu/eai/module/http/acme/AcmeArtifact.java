@@ -50,6 +50,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 	private ClusterSubscription subscription;
 	
 	public static class HTTPChallenge implements Serializable {
+		private String virtualHostId;
 		private static final long serialVersionUID = 1L;
 		private boolean completed;
 		private String authorization, token;
@@ -78,10 +79,11 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 			challenge.setKeystore(keystore);
 			return challenge;
 		}
-		public static HTTPChallenge challenge(String token, String authorization) {
+		public static HTTPChallenge challenge(String virtualHostId, String token, String authorization) {
 			HTTPChallenge challenge = new HTTPChallenge();
 			challenge.setToken(token);
 			challenge.setAuthorization(authorization);
+			challenge.setVirtualHostId(virtualHostId);
 			return challenge;
 		}
 		public byte[] getKeystore() {
@@ -89,6 +91,12 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 		}
 		public void setKeystore(byte[] keystore) {
 			this.keystore = keystore;
+		}
+		public String getVirtualHostId() {
+			return virtualHostId;
+		}
+		public void setVirtualHostId(String virtualHostId) {
+			this.virtualHostId = virtualHostId;
 		}
 	}
 	
@@ -104,11 +112,11 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 		}
 	}
 	
-	public void subscribe(String token, String authorization) {
+	public void subscribe(String virtualHostId, String token, String authorization) {
 		if (getRepository().getServiceRunner() instanceof ClusteredServer) {
 			ClusterInstance cluster = ((ClusteredServer) getRepository().getServiceRunner()).getCluster();
 			ClusterTopic<HTTPChallenge> topic = cluster.topic(getId() + ":http-challenge");
-			topic.publish(HTTPChallenge.challenge(token, authorization));
+			topic.publish(HTTPChallenge.challenge(virtualHostId, token, authorization));
 		}
 	}
 	
@@ -233,6 +241,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 								customHost.getConfig().setServer(server);
 								customHost.getConfig().setHost(getConfig().getVirtualHost().getConfig().getHost());
 								customHost.getConfig().setAliases(getConfig().getVirtualHost().getConfig().getAliases());
+								customHost.getConfig().setRedirectAliases(getConfig().getVirtualHost().getConfig().getRedirectAliases());
 								try {
 									customHost.start();
 									unsecure = customHost;

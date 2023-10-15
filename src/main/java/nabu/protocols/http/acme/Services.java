@@ -89,6 +89,11 @@ public class Services {
 		// if there is no certificate, check the shared map to see if someone in the cluster already requested one
 		X509Certificate validCertificate = null;
 		try {
+			List<VirtualHostArtifact> hosts = new ArrayList<VirtualHostArtifact>();
+			if (artifact.getConfig().getVirtualHost() != null) {
+				hosts.add(artifact.getConfig().getVirtualHost());
+			}
+			
 			// we are only interested in hosts that have an alias linked to a server that has a keystore
 			if (artifact.getConfig().isEnabled() && artifact.getRepository().getServiceRunner() instanceof ClusteredServer && artifact.getConfig().getVirtualHost() != null && artifact.getConfig().getVirtualHost().getConfig().getKeyAlias() != null && artifact.getConfig().getVirtualHost().getServer().getConfig().getKeystore() != null) {
 				logger.info("[{}] Verifying ACME certificate", artifact.getId());
@@ -203,6 +208,9 @@ public class Services {
 							if (virtualHost.getConfig().getAliases() != null) {
 								domains.addAll(virtualHost.getConfig().getAliases());
 							}
+							if (virtualHost.getConfig().getRedirectAliases() != null) {
+								domains.addAll(virtualHost.getConfig().getRedirectAliases());
+							}
 							// check for each domain that it is not local
 							Iterator<String> it = domains.iterator();
 							while (it.hasNext()) {
@@ -243,7 +251,7 @@ public class Services {
 										throw new IllegalStateException("Could not find http challenge for domain: " + authorization.getIdentifier().getDomain());
 									}
 									logger.info("[{}] Adding subscription for: " + authorization.getIdentifier().getDomain(), artifact.getId());
-									artifact.subscribe(httpChallenge.getToken(), httpChallenge.getAuthorization());
+									artifact.subscribe(virtualHost.getId(), httpChallenge.getToken(), httpChallenge.getAuthorization());
 									challenges.add(httpChallenge);
 								}
 								
