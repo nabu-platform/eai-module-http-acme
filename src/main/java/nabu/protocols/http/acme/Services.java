@@ -293,7 +293,7 @@ public class Services {
 								}
 								
 								List<String> alternateDomains = new ArrayList<String>(domains);
-								domains.remove(virtualHost.getConfig().getHost());
+								alternateDomains.remove(virtualHost.getConfig().getHost());
 								
 								Map<String, String> parts = SecurityUtils.getParts(userCertificate.getSubjectX500Principal());
 								X500Principal principal = SecurityUtils.createX500Principal(virtualHost.getConfig().getHost(), parts.get("O"), parts.get("OU"), parts.get("L"), parts.get("ST"), parts.get("C"));
