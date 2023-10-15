@@ -6,7 +6,9 @@ import java.io.Serializable;
 import java.net.URI;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,7 +47,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 	private Logger logger = LoggerFactory.getLogger(getClass());
 	private boolean started;
 	private List<EventSubscription<HTTPRequest, HTTPResponse>> challengeHandlers = new ArrayList<EventSubscription<HTTPRequest, HTTPResponse>>();
-	private VirtualHostArtifact customHost;
+	private Map<String, VirtualHostArtifact> customHosts = new HashMap<String, VirtualHostArtifact>();
 	private HTTPServerArtifact customServer;
 	private ClusterSubscription subscription;
 	
@@ -73,10 +75,11 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 		public void setToken(String token) {
 			this.token = token;
 		}
-		public static HTTPChallenge completed(byte [] keystore) {
+		public static HTTPChallenge completed(String virtualHostId, byte [] keystore) {
 			HTTPChallenge challenge = new HTTPChallenge();
 			challenge.setCompleted(true);
 			challenge.setKeystore(keystore);
+			challenge.setVirtualHostId(virtualHostId);
 			return challenge;
 		}
 		public static HTTPChallenge challenge(String virtualHostId, String token, String authorization) {
@@ -104,11 +107,11 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 		super(id, directory, repository, "acme.xml", AcmeConfiguration.class);
 	}
 
-	public void releaseAllSubscriptions(byte [] keystore) {
+	public void releaseAllSubscriptions(String virtualHostId, byte [] keystore) {
 		if (getRepository().getServiceRunner() instanceof ClusteredServer) {
 			ClusterInstance cluster = ((ClusteredServer) getRepository().getServiceRunner()).getCluster();
 			ClusterTopic<HTTPChallenge> topic = cluster.topic(getId() + ":http-challenge");
-			topic.publish(HTTPChallenge.completed(keystore));
+			topic.publish(HTTPChallenge.completed(virtualHostId, keystore));
 		}
 	}
 	
@@ -131,6 +134,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 					// if it is completed, unregister all handlers
 					if (message.isCompleted()) {
 						logger.info("[{}] HTTP challenge completed", getId());
+						VirtualHostArtifact customHost = customHosts.get(message.getVirtualHostId());
 						if (customHost != null) {
 							logger.info("[{}] Stopping custom virtual host", getId());
 							try {
@@ -139,7 +143,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 							catch (IOException e) {
 								logger.error("[" + getId() + "] Could not stop custom virtual host", e);
 							}
-							customHost = null;
+							customHosts.remove(message.getVirtualHostId());
 						}
 						if (customServer != null) {
 							logger.info("[{}] Stopping custom http server", getId());
@@ -187,7 +191,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 					}
 					else {
 						logger.info("[{}] Setting up HTTP challenge", getId());
-						VirtualHostArtifact unsecure = customHost;
+						VirtualHostArtifact unsecure = customHosts.get(message.getVirtualHostId());
 						if (unsecure == null) {
 							for (VirtualHostArtifact host : getRepository().getArtifacts(VirtualHostArtifact.class)) {
 								// we are looking for a virtual host with the same host name but not the one the acme artifact is mounted on (that is the secure one)
@@ -237,11 +241,12 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 							}
 							if (server != null) {
 								logger.info("[{}] Starting custom unsecure virtual host", getId());
-								customHost = new VirtualHostArtifact(getId() + ".host", new MemoryDirectory(), getRepository());
+								VirtualHostArtifact customHost = new VirtualHostArtifact(getId() + ".host", new MemoryDirectory(), getRepository());
 								customHost.getConfig().setServer(server);
 								customHost.getConfig().setHost(getConfig().getVirtualHost().getConfig().getHost());
 								customHost.getConfig().setAliases(getConfig().getVirtualHost().getConfig().getAliases());
 								customHost.getConfig().setRedirectAliases(getConfig().getVirtualHost().getConfig().getRedirectAliases());
+								customHosts.put(message.getVirtualHostId(), customHost);
 								try {
 									customHost.start();
 									unsecure = customHost;
