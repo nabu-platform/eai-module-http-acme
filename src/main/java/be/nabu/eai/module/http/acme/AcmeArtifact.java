@@ -131,36 +131,37 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 			subscription = topic.subscribe(new ClusterMessageListener<AcmeArtifact.HTTPChallenge>() {
 				@Override
 				public void onMessage(final HTTPChallenge message) {
+					VirtualHostArtifact virtualHost = (VirtualHostArtifact) getRepository().resolve(message.getVirtualHostId());
 					// if it is completed, unregister all handlers
 					if (message.isCompleted()) {
-						logger.info("[{}] HTTP challenge completed", getId());
+						logger.info("[{}] HTTP challenge completed", message.getVirtualHostId());
 						VirtualHostArtifact customHost = customHosts.get(message.getVirtualHostId());
 						if (customHost != null) {
-							logger.info("[{}] Stopping custom virtual host", getId());
+							logger.info("[{}] Stopping custom virtual host", message.getVirtualHostId());
 							try {
 								customHost.stop();
 							}
 							catch (IOException e) {
-								logger.error("[" + getId() + "] Could not stop custom virtual host", e);
+								logger.error("[" + message.getVirtualHostId() + "] Could not stop custom virtual host", e);
 							}
 							customHosts.remove(message.getVirtualHostId());
 						}
 						if (customServer != null) {
-							logger.info("[{}] Stopping custom http server", getId());
+							logger.info("[{}] Stopping custom http server", message.getVirtualHostId());
 							try {
 								customServer.stop();
 							}
 							catch (IOException e) {
-								logger.error("[" + getId() + "] Could not stop custom http server", e);
+								logger.error("[" + message.getVirtualHostId() + "] Could not stop custom http server", e);
 							}
 							customServer = null;
 						}
 						if (message.getKeystore() != null) {
-							logger.info("[{}] Received new keystore", getId());
+							logger.info("[{}] Received new keystore", message.getVirtualHostId());
 							
-							KeyStoreArtifact keystore = getConfig().getVirtualHost().getServer().getConfig().getKeystore();
+							KeyStoreArtifact keystore = virtualHost.getServer().getConfig().getKeystore();
 							//String keyAlias = getConfig().getVirtualHost().getConfig().getKeyAlias();
-							String acmeAlias = "acme2-" + getId();
+							String acmeAlias = "acme2-" + message.getVirtualHostId();
 							try {
 								KeyStoreHandler toMerge = KeyStoreHandler.load(new ByteArrayInputStream(message.getKeystore()), getId(), StoreType.PKCS12);
 								
@@ -177,7 +178,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 								
 								logger.info("[{}] Updating security context", getId());
 								// update the security context for the server so it picks up the new key
-								getConfig().getVirtualHost().getServer().updateSecurityContext();
+								virtualHost.getServer().updateSecurityContext();
 							}
 							catch (Exception e) {
 								logger.error("[" + getId() + "] Could not set updated keystore", e);
@@ -195,7 +196,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 						if (unsecure == null) {
 							for (VirtualHostArtifact host : getRepository().getArtifacts(VirtualHostArtifact.class)) {
 								// we are looking for a virtual host with the same host name but not the one the acme artifact is mounted on (that is the secure one)
-								if (!host.equals(getConfig().getVirtualHost()) && getConfig().getVirtualHost().getConfig().getHost().equals(host.getConfig().getHost())) {
+								if (!host.equals(virtualHost) && virtualHost.getConfig().getHost().equals(host.getConfig().getHost())) {
 									// it must have a server and must not be configured for security 
 									if (host.getServer() != null && host.getConfig().getKeyAlias() == null) {
 										Integer port = host.getServer().getConfig().getPort();
@@ -243,9 +244,9 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 								logger.info("[{}] Starting custom unsecure virtual host", getId());
 								VirtualHostArtifact customHost = new VirtualHostArtifact(getId() + ".host", new MemoryDirectory(), getRepository());
 								customHost.getConfig().setServer(server);
-								customHost.getConfig().setHost(getConfig().getVirtualHost().getConfig().getHost());
-								customHost.getConfig().setAliases(getConfig().getVirtualHost().getConfig().getAliases());
-								customHost.getConfig().setRedirectAliases(getConfig().getVirtualHost().getConfig().getRedirectAliases());
+								customHost.getConfig().setHost(virtualHost.getConfig().getHost());
+								customHost.getConfig().setAliases(virtualHost.getConfig().getAliases());
+								customHost.getConfig().setRedirectAliases(virtualHost.getConfig().getRedirectAliases());
 								customHosts.put(message.getVirtualHostId(), customHost);
 								try {
 									customHost.start();
@@ -260,7 +261,7 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 							logger.info("[{}] Found existing unsecure host: " + unsecure.getId(), getId());
 						}
 						if (unsecure == null) {
-							logger.error("[{}] Could not find unsecure host for: " + getConfig().getVirtualHost().getConfig().getHost(), getId());
+							logger.error("[{}] Could not find unsecure host for: " + virtualHost.getConfig().getHost(), getId());
 						}
 						else {
 							final String path = "/.well-known/acme-challenge/" + message.getToken();
