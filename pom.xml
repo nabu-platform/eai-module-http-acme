@@ -1,18 +1,15 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>nabu</groupId>
 	<artifactId>eai-module-http-acme</artifactId>
-	<version>${nabu-eai-module-http-acme-version}</version>
+	<version>1.1</version>
 	<name>eai-module-http-acme</name>
 	<url>http://nabu.be</url>
-
 	<parent>
 		<groupId>be.nabu</groupId>
 		<artifactId>core</artifactId>
 		<version>1.0-SNAPSHOT</version>
 	</parent>
-
 	<build>
 		<plugins>
 			<plugin>
@@ -25,7 +22,6 @@
 			</plugin>
 		</plugins>
 	</build>
-
 	<dependencies>
 		<dependency>
 			<groupId>be.nabu.eai</groupId>
@@ -92,13 +88,10 @@
 			<artifactId>slf4j-api</artifactId>
 			<scope>provided</scope>
 		</dependency>
-
-		<!-- https://mvnrepository.com/artifact/org.shredzone.acme4j/acme4j-client -->
 		<dependency>
 			<groupId>org.shredzone.acme4j</groupId>
 			<artifactId>acme4j-client</artifactId>
 			<version>2.7</version>
 		</dependency>
-
 	</dependencies>
 </project>
