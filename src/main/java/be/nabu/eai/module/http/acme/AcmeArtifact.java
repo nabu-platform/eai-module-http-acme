@@ -148,164 +148,169 @@ public class AcmeArtifact extends JAXBArtifact<AcmeConfiguration> implements Sta
 			subscription = topic.subscribe(new ClusterMessageListener<AcmeArtifact.HTTPChallenge>() {
 				@Override
 				public void onMessage(final HTTPChallenge message) {
-					VirtualHostArtifact virtualHost = (VirtualHostArtifact) getRepository().resolve(message.getVirtualHostId());
-					// if it is completed, unregister all handlers
-					if (message.isCompleted()) {
-						logger.info("[{}] HTTP challenge completed", message.getVirtualHostId());
-						VirtualHostArtifact customHost = customHosts.get(message.getVirtualHostId());
-						if (customHost != null) {
-							logger.info("[{}] Stopping custom virtual host", message.getVirtualHostId());
-							try {
-								customHost.stop();
-							}
-							catch (IOException e) {
-								logger.error("[" + message.getVirtualHostId() + "] Could not stop custom virtual host", e);
-							}
-							customHosts.remove(message.getVirtualHostId());
-						}
-						if (customServer != null) {
-							logger.info("[{}] Stopping custom http server", message.getVirtualHostId());
-							try {
-								customServer.stop();
-							}
-							catch (IOException e) {
-								logger.error("[" + message.getVirtualHostId() + "] Could not stop custom http server", e);
-							}
-							customServer = null;
-						}
-						if (message.getKeystore() != null) {
-							logger.info("[{}] Received new keystore", message.getVirtualHostId());
-							
-							KeyStoreArtifact keystore = virtualHost.getServer().getConfig().getKeystore();
-							//String keyAlias = getConfig().getVirtualHost().getConfig().getKeyAlias();
-							String acmeAlias = "acme2-" + message.getVirtualHostId();
-							try {
-								KeyStoreHandler toMerge = KeyStoreHandler.load(new ByteArrayInputStream(message.getKeystore()), getId(), StoreType.PKCS12);
-								
-								// set it in the server keystore so it can be used
-								keystore.getKeyStore().set(acmeAlias, toMerge.getPrivateKey(acmeAlias, null), toMerge.getPrivateKeys().get(acmeAlias), null);
-								
-								// save the newly obtained certificate if the files are writable
-								// this is especially interesting for non-clustered servers because without clustered map storage they would have to re-request it every boot
-								// given the weekly limits, this could be problematic when the project is still being deployed often
-								if (keystore.getDirectory().getChild("keystore.xml") instanceof WritableResource) {
-									logger.info("[{}] Persisting keystore", getId());
-									keystore.save(keystore.getDirectory());
+					try {
+						VirtualHostArtifact virtualHost = (VirtualHostArtifact) getRepository().resolve(message.getVirtualHostId());
+						// if it is completed, unregister all handlers
+						if (message.isCompleted()) {
+							logger.info("[{}] HTTP challenge completed", message.getVirtualHostId());
+							VirtualHostArtifact customHost = customHosts.get(message.getVirtualHostId());
+							if (customHost != null) {
+								logger.info("[{}] Stopping custom virtual host", message.getVirtualHostId());
+								try {
+									customHost.stop();
 								}
+								catch (IOException e) {
+									logger.error("[" + message.getVirtualHostId() + "] Could not stop custom virtual host", e);
+								}
+								customHosts.remove(message.getVirtualHostId());
+							}
+							if (customServer != null) {
+								logger.info("[{}] Stopping custom http server", message.getVirtualHostId());
+								try {
+									customServer.stop();
+								}
+								catch (IOException e) {
+									logger.error("[" + message.getVirtualHostId() + "] Could not stop custom http server", e);
+								}
+								customServer = null;
+							}
+							if (message.getKeystore() != null) {
+								logger.info("[{}] Received new keystore", message.getVirtualHostId());
 								
-								logger.info("[{}] Updating security context", getId());
-								// update the security context for the server so it picks up the new key
-								virtualHost.getServer().updateSecurityContext();
+								KeyStoreArtifact keystore = virtualHost.getServer().getConfig().getKeystore();
+								//String keyAlias = getConfig().getVirtualHost().getConfig().getKeyAlias();
+								String acmeAlias = "acme2-" + message.getVirtualHostId();
+								try {
+									KeyStoreHandler toMerge = KeyStoreHandler.load(new ByteArrayInputStream(message.getKeystore()), getId(), StoreType.PKCS12);
+									
+									// set it in the server keystore so it can be used
+									keystore.getKeyStore().set(acmeAlias, toMerge.getPrivateKey(acmeAlias, null), toMerge.getPrivateKeys().get(acmeAlias), null);
+									
+									// save the newly obtained certificate if the files are writable
+									// this is especially interesting for non-clustered servers because without clustered map storage they would have to re-request it every boot
+									// given the weekly limits, this could be problematic when the project is still being deployed often
+									if (keystore.getDirectory().getChild("keystore.xml") instanceof WritableResource) {
+										logger.info("[{}] Persisting keystore", getId());
+										keystore.save(keystore.getDirectory());
+									}
+									
+									logger.info("[{}] Updating security context", getId());
+									// update the security context for the server so it picks up the new key
+									virtualHost.getServer().updateSecurityContext();
+								}
+								catch (Exception e) {
+									logger.error("[" + getId() + "] Could not set updated keystore", e);
+								}
 							}
-							catch (Exception e) {
-								logger.error("[" + getId() + "] Could not set updated keystore", e);
+							logger.info("[{}] Removing " + challengeHandlers.size() + " subscription(s)", getId());
+							for (EventSubscription<HTTPRequest, HTTPResponse> challengeHandler : challengeHandlers) {
+								challengeHandler.unsubscribe();
 							}
+							challengeHandlers.clear();
 						}
-						logger.info("[{}] Removing " + challengeHandlers.size() + " subscription(s)", getId());
-						for (EventSubscription<HTTPRequest, HTTPResponse> challengeHandler : challengeHandlers) {
-							challengeHandler.unsubscribe();
-						}
-						challengeHandlers.clear();
-					}
-					else {
-						logger.info("[{}] Setting up HTTP challenge", getId());
-						VirtualHostArtifact unsecure = customHosts.get(message.getVirtualHostId());
-						if (unsecure == null) {
-							for (VirtualHostArtifact host : getRepository().getArtifacts(VirtualHostArtifact.class)) {
-								// we are looking for a virtual host with the same host name but not the one the acme artifact is mounted on (that is the secure one)
-								if (!host.equals(virtualHost) && virtualHost.getConfig().getHost().equals(host.getConfig().getHost())) {
-									// it must have a server and must not be configured for security 
-									if (host.getServer() != null && host.getConfig().getKeyAlias() == null) {
-										Integer port = host.getServer().getConfig().getPort();
-										// and the port _must_ be 80 as it is a standardized protocol on this port
-										if (port == null || port == 80) {
-											unsecure = host;
+						else {
+							logger.info("[{}] Setting up HTTP challenge", getId());
+							VirtualHostArtifact unsecure = customHosts.get(message.getVirtualHostId());
+							if (unsecure == null) {
+								for (VirtualHostArtifact host : getRepository().getArtifacts(VirtualHostArtifact.class)) {
+									// we are looking for a virtual host with the same host name but not the one the acme artifact is mounted on (that is the secure one)
+									if (!host.equals(virtualHost) && virtualHost.getConfig().getHost().equals(host.getConfig().getHost())) {
+										// it must have a server and must not be configured for security 
+										if (host.getServer() != null && host.getConfig().getKeyAlias() == null) {
+											Integer port = host.getServer().getConfig().getPort();
+											// and the port _must_ be 80 as it is a standardized protocol on this port
+											if (port == null || port == 80) {
+												unsecure = host;
+												break;
+											}
+										}
+									}
+								}
+							}
+							// find a server on port 80 and add a dynamic host
+							if (unsecure == null) {
+								logger.info("[{}] Could not find unsecure host equivalent, checking for available servers", getId());
+								HTTPServerArtifact server = customServer;
+								if (server == null) {
+									for (HTTPServerArtifact possible : getRepository().getArtifacts(HTTPServerArtifact.class)) {
+										// can have disabled servers from other projects
+										if (possible.getConfig().getKeystore() == null && (possible.getConfig().getPort() == null || possible.getConfig().getPort() == 80) && possible.getConfig().isEnabled()) {
+											server = possible;
 											break;
 										}
 									}
 								}
-							}
-						}
-						// find a server on port 80 and add a dynamic host
-						if (unsecure == null) {
-							logger.info("[{}] Could not find unsecure host equivalent, checking for available servers", getId());
-							HTTPServerArtifact server = customServer;
-							if (server == null) {
-								for (HTTPServerArtifact possible : getRepository().getArtifacts(HTTPServerArtifact.class)) {
-									// can have disabled servers from other projects
-									if (possible.getConfig().getKeystore() == null && (possible.getConfig().getPort() == null || possible.getConfig().getPort() == 80) && possible.getConfig().isEnabled()) {
-										server = possible;
-										break;
+								// if we have no server, start one up on 80
+								if (server == null) {
+									logger.info("[{}] Starting custom unsecure http server", getId());
+									customServer = new HTTPServerArtifact(getId() + ".server", new MemoryDirectory(), getRepository());
+									customServer.getConfig().setEnabled(true);
+									customServer.getConfig().setPort(80);
+									try {
+										customServer.start();
+										customServer.finish();
+										server = customServer;
+									}
+									catch (IOException e) {
+										logger.error("[" + getId() + "] Could not start custom http server", e);
 									}
 								}
-							}
-							// if we have no server, start one up on 80
-							if (server == null) {
-								logger.info("[{}] Starting custom unsecure http server", getId());
-								customServer = new HTTPServerArtifact(getId() + ".server", new MemoryDirectory(), getRepository());
-								customServer.getConfig().setEnabled(true);
-								customServer.getConfig().setPort(80);
-								try {
-									customServer.start();
-									customServer.finish();
-									server = customServer;
+								else {
+									logger.info("[{}] Found existing unsecure http server: " + server.getId(), getId());
 								}
-								catch (IOException e) {
-									logger.error("[" + getId() + "] Could not start custom http server", e);
+								if (server != null) {
+									logger.info("[{}] Starting custom unsecure virtual host", getId());
+									VirtualHostArtifact customHost = new VirtualHostArtifact(getId() + ".host", new MemoryDirectory(), getRepository());
+									customHost.getConfig().setServer(server);
+									customHost.getConfig().setHost(virtualHost.getConfig().getHost());
+									customHost.getConfig().setAliases(virtualHost.getConfig().getAliases());
+									customHost.getConfig().setRedirectAliases(virtualHost.getConfig().getRedirectAliases());
+									customHosts.put(message.getVirtualHostId(), customHost);
+									try {
+										customHost.start();
+										unsecure = customHost;
+									}
+									catch (IOException e) {
+										logger.error("[" + getId() + "] Could not start custom virtual host", e);
+									}
 								}
 							}
 							else {
-								logger.info("[{}] Found existing unsecure http server: " + server.getId(), getId());
+								logger.info("[{}] Found existing unsecure host: " + unsecure.getId(), getId());
 							}
-							if (server != null) {
-								logger.info("[{}] Starting custom unsecure virtual host", getId());
-								VirtualHostArtifact customHost = new VirtualHostArtifact(getId() + ".host", new MemoryDirectory(), getRepository());
-								customHost.getConfig().setServer(server);
-								customHost.getConfig().setHost(virtualHost.getConfig().getHost());
-								customHost.getConfig().setAliases(virtualHost.getConfig().getAliases());
-								customHost.getConfig().setRedirectAliases(virtualHost.getConfig().getRedirectAliases());
-								customHosts.put(message.getVirtualHostId(), customHost);
-								try {
-									customHost.start();
-									unsecure = customHost;
-								}
-								catch (IOException e) {
-									logger.error("[" + getId() + "] Could not start custom virtual host", e);
-								}
+							if (unsecure == null) {
+								logger.error("[{}] Could not find unsecure host for: " + virtualHost.getConfig().getHost(), getId());
 							}
-						}
-						else {
-							logger.info("[{}] Found existing unsecure host: " + unsecure.getId(), getId());
-						}
-						if (unsecure == null) {
-							logger.error("[{}] Could not find unsecure host for: " + virtualHost.getConfig().getHost(), getId());
-						}
-						else {
-							final String path = "/.well-known/acme-challenge/" + message.getToken();
-							logger.info("[{}] Listening for call to: " + path, getId());
-							EventSubscription<HTTPRequest, HTTPResponse> challengeHandler = unsecure.getDispatcher().subscribe(HTTPRequest.class, new EventHandler<HTTPRequest, HTTPResponse>() {
-								@Override
-								public HTTPResponse handle(HTTPRequest request) {
-									try {
-										URI uri = HTTPUtils.getURI(request, false);
-										if (uri.getPath().equals(path)) {
-											logger.info("[{}] Incoming call: " + uri, getId());
-											byte [] content = message.getAuthorization().getBytes(Charset.forName("UTF-8"));
-											return new DefaultHTTPResponse(200, HTTPCodes.getMessage(200), new PlainMimeContentPart(null, 
-												IOUtils.wrap(content, true), 
-												new MimeHeader("Content-Length", "" + content.length)));
+							else {
+								final String path = "/.well-known/acme-challenge/" + message.getToken();
+								logger.info("[{}] Listening for call to: " + path, getId());
+								EventSubscription<HTTPRequest, HTTPResponse> challengeHandler = unsecure.getDispatcher().subscribe(HTTPRequest.class, new EventHandler<HTTPRequest, HTTPResponse>() {
+									@Override
+									public HTTPResponse handle(HTTPRequest request) {
+										try {
+											URI uri = HTTPUtils.getURI(request, false);
+											if (uri.getPath().equals(path)) {
+												logger.info("[{}] Incoming call: " + uri, getId());
+												byte [] content = message.getAuthorization().getBytes(Charset.forName("UTF-8"));
+												return new DefaultHTTPResponse(200, HTTPCodes.getMessage(200), new PlainMimeContentPart(null, 
+													IOUtils.wrap(content, true), 
+													new MimeHeader("Content-Length", "" + content.length)));
+											}
 										}
+										catch (Exception e) {
+											throw new HTTPException(500, e);
+										}
+										return null;
 									}
-									catch (Exception e) {
-										throw new HTTPException(500, e);
-									}
-									return null;
-								}
-							});
-							// make sure it is at the front of the handlers
-							challengeHandler.promote();
-							challengeHandlers.add(challengeHandler);
+								});
+								// make sure it is at the front of the handlers
+								challengeHandler.promote();
+								challengeHandlers.add(challengeHandler);
+							}
 						}
+					}
+					catch (Throwable e) {
+						logger.error("[" + getId() + "] ACME throwable", e);
 					}
 				}
 			});
